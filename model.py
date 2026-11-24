@@ -470,3 +470,93 @@ def subsample_backward(dout, x, coef):
 
     return dx, dcoef, dbias
 
+# Step 7 - rbf_forward
+def rbf_forward(x, centers):
+    """
+    Compute squared Euclidean distances for the LeNet-5 RBF output layer.
+
+    Parameters:
+        x: Input feature vectors of shape (n, d).
+        centers: Fixed prototype vectors of shape (n_centers, d).
+
+    Returns:
+        y: Squared Euclidean distances of shape (n, n_centers).
+    """
+
+    # Convert inputs to float64 for numerical consistency.
+    x = np.asarray(x, dtype=np.float64)
+    centers = np.asarray(centers, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 2:
+        raise ValueError("x must be a 2D array of shape (n, d).")
+
+    if centers.ndim != 2:
+        raise ValueError("centers must be a 2D array of shape (n_centers, d).")
+
+    if x.shape[1] != centers.shape[1]:
+        raise ValueError("x and centers must have the same feature dimension.")
+
+    # Calculate the difference between each input vector
+    # and every prototype vector.
+    diff = x[:, None, :] - centers[None, :, :]
+
+    # Calculate squared Euclidean distances.
+    # Sum over the feature dimension.
+    y = np.sum(diff ** 2, axis=2)
+
+    return y
+
+
+def rbf_backward(dy, x, centers):
+    """
+    Compute the gradient of the RBF output layer with respect to x.
+
+    Parameters:
+        dy: Gradient with respect to RBF outputs,
+            shape (n, n_centers).
+        x: Original input feature vectors, shape (n, d).
+        centers: Fixed prototype vectors, shape (n_centers, d).
+
+    Returns:
+        dx: Gradient with respect to x, shape (n, d).
+
+    Note:
+        The prototype vectors are fixed and receive no gradients.
+    """
+
+    # Convert inputs to float64 for numerical consistency.
+    dy = np.asarray(dy, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    centers = np.asarray(centers, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 2:
+        raise ValueError("x must be a 2D array.")
+
+    if centers.ndim != 2:
+        raise ValueError("centers must be a 2D array.")
+
+    if x.shape[1] != centers.shape[1]:
+        raise ValueError("x and centers must have the same feature dimension.")
+
+    n, d = x.shape
+    n_centers = centers.shape[0]
+
+    if dy.shape != (n, n_centers):
+        raise ValueError(
+            f"dy must have shape {(n, n_centers)}, got {dy.shape}."
+        )
+
+    # Calculate differences between inputs and prototype vectors.
+    diff = x[:, None, :] - centers[None, :, :]
+
+    # Apply the chain rule:
+    # dE/dx = sum_i [dy_i * 2 * (x - centers_i)].
+    dx = 2.0 * np.sum(
+        dy[:, :, None] * diff,
+        axis=1
+    )
+
+    return dx
+
