@@ -1016,3 +1016,159 @@ def error_rate(params, x, labels, batch=200):
     # Return the fraction of incorrectly classified images.
     return float(incorrect / n)
 
+# Step 11 - lenet5_backward
+def lenet5_backward(params, cache, dy):
+    """
+    Perform backpropagation through the complete LeNet-5 network.
+
+    Parameters:
+        params: Dictionary containing the LeNet-5 parameters.
+        cache: Dictionary of intermediate activations from lenet5_forward().
+        dy: Gradient of the loss with respect to the RBF penalties,
+            shape (n, 10).
+
+    Returns:
+        grads: Dictionary containing gradients for all 12 trainable
+               parameter arrays, with shapes matching their parameters.
+
+    Note:
+        The RBF prototype vectors are fixed and do not receive gradients.
+        Gradients are accumulated over the batch.
+    """
+
+    # Convert the upstream gradient to float64.
+    dy = np.asarray(dy, dtype=np.float64)
+
+    # Retrieve the original input and intermediate activations.
+    x = cache["x"]
+
+    a1, h1 = cache["a1"], cache["h1"]
+    a2, h2 = cache["a2"], cache["h2"]
+    a3, h3 = cache["a3"], cache["h3"]
+    a4, h4 = cache["a4"], cache["h4"]
+    a5, h5 = cache["a5"], cache["h5"]
+    a6, h6 = cache["a6"], cache["h6"]
+
+    # Validate the upstream gradient.
+    n = x.shape[0]
+
+    if dy.shape != (n, 10):
+        raise ValueError("dy must have shape (n, 10).")
+
+    # Initialize the dictionary of trainable parameter gradients.
+    grads = {}
+
+    # ---------------------------------------------------------
+    # Layer 7: RBF - Euclidean output layer
+    # ---------------------------------------------------------
+    # Propagate gradients from the ten output penalties
+    # back to the 84 F6 activations.
+
+    dh6 = rbf_backward(
+        dy,
+        h6,
+        params["RBF"]
+    )
+
+    # ---------------------------------------------------------
+    # Layer 6: F6 - Fully connected layer
+    # ---------------------------------------------------------
+    # h6 = squash(h5 @ F6_W + F6_b)
+
+    da6 = dh6 * squash_prime(a6)
+
+    # Gradient with respect to F6 weights.
+    # Accumulate contributions across the batch.
+    grads["F6_W"] = h5.T @ da6
+
+    # Gradient with respect to F6 biases.
+    grads["F6_b"] = np.sum(da6, axis=0)
+
+    # Propagate gradients to the C5 activations.
+    dh5 = da6 @ params["F6_W"].T
+
+    # ---------------------------------------------------------
+    # Layer 5: C5 - Third convolution layer
+    # ---------------------------------------------------------
+    # h5 = squash(a5)
+    # a5 is the flattened output of C5.
+    # Restore its original spatial dimensions for convolution
+    # backpropagation: (n, 120, 1, 1).
+
+    da5 = dh5 * squash_prime(a5)
+
+    da5_conv = da5.reshape(n, 120, 1, 1)
+
+    # Compute gradients with respect to C5 inputs and parameters.
+    dh4_conv, grads["C5_W"], grads["C5_b"] = conv_backward(
+        da5_conv,
+        h4,
+        params["C5_W"]
+    )
+
+    # Restore the subsampling layer activation shape.
+    dh4 = dh4_conv
+
+    # ---------------------------------------------------------
+    # Layer 4: S4 - Second trainable subsampling layer
+    # ---------------------------------------------------------
+    # h4 = squash(a4)
+
+    da4 = dh4 * squash_prime(a4)
+
+    # Compute input, coefficient and bias gradients.
+    dh3, grads["S4_c"], grads["S4_b"] = subsample_backward(
+        da4,
+        h3,
+        params["S4_c"]
+    )
+
+    # ---------------------------------------------------------
+    # Layer 3: C3 - Second convolution layer
+    # ---------------------------------------------------------
+    # h3 = squash(a3)
+    # C3 uses the original partial connectivity table.
+
+    da3 = dh3 * squash_prime(a3)
+
+    dh2, grads["C3_W"], grads["C3_b"] = conv_backward(
+        da3,
+        h2,
+        params["C3_W"],
+        table=connection_table()
+    )
+
+    # ---------------------------------------------------------
+    # Layer 2: S2 - First trainable subsampling layer
+    # ---------------------------------------------------------
+    # h2 = squash(a2)
+
+    da2 = dh2 * squash_prime(a2)
+
+    # Compute input, coefficient and bias gradients.
+    dh1, grads["S2_c"], grads["S2_b"] = subsample_backward(
+        da2,
+        h1,
+        params["S2_c"]
+    )
+
+    # ---------------------------------------------------------
+    # Layer 1: C1 - First convolution layer
+    # ---------------------------------------------------------
+    # h1 = squash(a1)
+
+    da1 = dh1 * squash_prime(a1)
+
+    # Compute the final convolution gradients.
+    # The gradient with respect to the original image is not
+    # needed because the input pixels are not trainable.
+    dx, grads["C1_W"], grads["C1_b"] = conv_backward(
+        da1,
+        x,
+        params["C1_W"]
+    )
+
+    # Return gradients for all 12 trainable parameter arrays.
+    # No gradient is returned for the fixed RBF prototypes.
+    return grads
+
