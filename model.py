@@ -560,3 +560,102 @@ def rbf_backward(dy, x, centers):
 
     return dx
 
+# Step 8 - map_loss
+def map_loss(y, labels, j):
+    """
+    Compute the LeNet-5 discriminative loss and its gradient.
+
+    Parameters:
+        y: RBF output penalties, shape (P, n_classes).
+        labels: Correct class indices, shape (P,).
+        j: Positive constant controlling the loss.
+
+    Returns:
+        E: Mean discriminative loss as a Python float.
+        dy: Gradient of the loss with respect to y,
+            shape (P, n_classes).
+    """
+
+    # Convert inputs to NumPy arrays for consistent computation.
+    y = np.asarray(y, dtype=np.float64)
+    labels = np.asarray(labels)
+
+    # Validate input dimensions.
+    if y.ndim != 2:
+        raise ValueError("y must have shape (P, n_classes).")
+
+    if labels.ndim != 1 or labels.shape[0] != y.shape[0]:
+        raise ValueError("labels must have shape (P,).")
+
+    P, n_classes = y.shape
+
+    if P == 0 or n_classes == 0:
+        raise ValueError("y must contain at least one sample and one class.")
+
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise ValueError("labels must contain integer class indices.")
+
+    if np.any(labels < 0) or np.any(labels >= n_classes):
+        raise ValueError("labels contain an invalid class index.")
+
+    if not np.all(np.isfinite(y)) or np.any(y < 0):
+        raise ValueError("y must contain finite, non-negative penalties.")
+
+    if not np.isscalar(j) or not np.isfinite(j) or j <= 0:
+        raise ValueError("j must be a positive finite scalar.")
+
+    # ---------------------------------------------------------
+    # 1. Compute the stable logarithmic denominator.
+    # ---------------------------------------------------------
+
+    # Construct the values whose exponentials appear in the loss:
+    # exp(-j) + sum_i exp(-y[p, i]).
+    logits = np.concatenate(
+        (
+            np.full((P, 1), -float(j)),
+            -y
+        ),
+        axis=1
+    )
+
+    # Apply the log-sum-exp trick to prevent numerical underflow.
+    row_max = np.max(logits, axis=1, keepdims=True)
+
+    shifted_exp = np.exp(logits - row_max)
+
+    log_denom = (
+        row_max[:, 0]
+        + np.log(np.sum(shifted_exp, axis=1))
+    )
+
+    # ---------------------------------------------------------
+    # 2. Compute the mean discriminative loss.
+    # ---------------------------------------------------------
+
+    # Select the penalty corresponding to the correct class.
+    correct_penalties = y[np.arange(P), labels]
+
+    # Compute the loss for each image.
+    sample_losses = correct_penalties + log_denom
+
+    # Average across the batch and return a Python float.
+    E = float(np.mean(sample_losses))
+
+    # ---------------------------------------------------------
+    # 3. Compute the gradient with respect to y.
+    # ---------------------------------------------------------
+
+    # Calculate the normalized exponential probabilities.
+    probabilities = np.exp(-y - log_denom[:, None])
+
+    # Start with the negative normalized exponential terms.
+    dy = -probabilities
+
+    # Add 1 to the gradient of each correct class penalty.
+    dy[np.arange(P), labels] += 1.0
+
+    # Account for averaging the loss across the batch.
+    dy /= P
+
+    return E, dy
+

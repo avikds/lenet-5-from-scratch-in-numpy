@@ -17,6 +17,7 @@ python scaffold.py
 - [x] **5.** conv_backward
 - [x] **6.** subsample_forward
 - [x] **7.** rbf_forward
+- [x] **8.** map_loss
 
 ---
 
