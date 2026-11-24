@@ -81,3 +81,46 @@ def squash_prime(a):
     # Apply the derivative using the chain rule.
     return 1.7159 * (2.0 / 3.0) * (1.0 - t**2)
 
+# Step 3 - connection_table
+def connection_table():
+    """
+    Return the LeNet-5 connection table between S2 and C3.
+
+    Returns:
+        T: Boolean NumPy array of shape (6, 16).
+           T[i, j] is True when C3 map j receives input
+           from S2 map i.
+    """
+
+    # Initialize the connection table with all connections disabled.
+    T = np.zeros((6, 16), dtype=bool)
+
+    # C3 maps 0-5: Each connects to three consecutive S2 maps,
+    # with circular wraparound.
+    for j in range(6):
+        for offset in range(3):
+            i = (j + offset) % 6
+            T[i, j] = True
+
+    # C3 maps 6-11: Each connects to four consecutive S2 maps,
+    # with circular wraparound.
+    for j in range(6, 12):
+        start = j - 6
+        for offset in range(4):
+            i = (start + offset) % 6
+            T[i, j] = True
+
+    # C3 map 12: Connects to S2 maps {0, 1, 3, 4}.
+    T[[0, 1, 3, 4], 12] = True
+
+    # C3 map 13: Connects to S2 maps {1, 2, 4, 5}.
+    T[[1, 2, 4, 5], 13] = True
+
+    # C3 map 14: Connects to S2 maps {0, 2, 3, 5}.
+    T[[0, 2, 3, 5], 14] = True
+
+    # C3 map 15: Connects to all six S2 maps.
+    T[:, 15] = True
+
+    return T
+
