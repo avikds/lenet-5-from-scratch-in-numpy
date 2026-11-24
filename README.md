@@ -13,6 +13,7 @@ python scaffold.py
 - [x] **1.** scale_input
 - [x] **2.** squash
 - [x] **3.** connection_table
+- [x] **4.** conv_forward
 
 ---
 

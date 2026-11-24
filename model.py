@@ -124,3 +124,91 @@ def connection_table():
 
     return T
 
+# Step 4 - conv_forward
+def conv_forward(x, W, b, table=None):
+    """
+    Perform a valid, stride-1 convolution without flipping kernels.
+
+    Parameters:
+        x: Input feature maps of shape (n, c_in, H, W).
+        W: Convolution kernels of shape (c_out, c_in, k, k).
+        b: Bias vector of shape (c_out,).
+        table: Optional Boolean connection table of shape
+               (c_in, c_out). A connection is enabled when
+               table[i, o] is True.
+
+    Returns:
+        Weighted sums of shape (n, c_out, H-k+1, W-k+1).
+    """
+
+    # Convert inputs to NumPy arrays.
+    x = np.asarray(x)
+    W = np.asarray(W)
+    b = np.asarray(b)
+
+    # Validate input dimensions.
+    if x.ndim != 4:
+        raise ValueError("x must have shape (n, c_in, H, W).")
+
+    if W.ndim != 4:
+        raise ValueError("W must have shape (c_out, c_in, k, k).")
+
+    c_out, c_in, k_h, k_w = W.shape
+    n, x_c_in, H, W_in = x.shape
+
+    if x_c_in != c_in:
+        raise ValueError("Input channels must match kernel channels.")
+
+    if k_h != k_w:
+        raise ValueError("Convolution kernels must be square.")
+
+    if H < k_h or W_in < k_w:
+        raise ValueError("Kernel dimensions cannot exceed input dimensions.")
+
+    if b.shape != (c_out,):
+        raise ValueError("b must have shape (c_out,).")
+
+    # Apply the optional connection table.
+    # table[i, o] determines whether output map o uses input map i.
+    if table is not None:
+        table = np.asarray(table, dtype=bool)
+
+        if table.shape != (c_in, c_out):
+            raise ValueError("table must have shape (c_in, c_out).")
+
+        # Transpose the table to match the kernel layout (c_out, c_in).
+        # Disabled connections receive zero-valued kernels.
+        W = W * table.T[:, :, None, None]
+
+    # Calculate the spatial dimensions of the valid convolution.
+    H_out = H - k_h + 1
+    W_out = W_in - k_w + 1
+
+    # Extract all sliding kernel-sized windows.
+    # The resulting shape is (n, c_in, H_out, W_out, k_h, k_w).
+    windows = np.lib.stride_tricks.sliding_window_view(
+        x,
+        window_shape=(k_h, k_w),
+        axis=(2, 3)
+    )
+
+    # Multiply each input window by its corresponding shared kernel
+    # and sum over input channels and kernel dimensions.
+    # No kernel flipping is performed.
+    output = np.einsum(
+        'niphwkl,oikl->nophw',
+        windows,
+        W,
+        optimize=True
+    ) if False else np.einsum(
+        'n i p q u v, o i u v -> n o p q',
+        windows,
+        W,
+        optimize=True
+    )
+
+    # Add one bias per output feature map.
+    output += b[None, :, None, None]
+
+    return output
+
