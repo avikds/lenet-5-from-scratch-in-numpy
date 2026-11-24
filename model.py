@@ -1172,3 +1172,217 @@ def lenet5_backward(params, cache, dy):
     # No gradient is returned for the fixed RBF prototypes.
     return grads
 
+# Step 12 - gn_diag
+def gn_diag(params, x, chunk=100):
+    """
+    Estimate the diagonal of the Gauss-Newton curvature matrix
+    for every trainable parameter in LeNet-5.
+
+    Parameters:
+        params: Dictionary containing initialized LeNet-5 parameters.
+        x: Scaled input images of shape (n, 1, 32, 32).
+        chunk: Number of images processed per chunk.
+
+    Returns:
+        h: Dictionary containing the average Gauss-Newton
+           diagonal estimates for all 12 trainable arrays.
+
+    Notes:
+        - Uses a second derivative of 2 at every F6 state.
+        - Propagates squared derivatives through the network.
+        - Uses squared weights and squared layer inputs.
+        - Preserves C3 partial connectivity.
+        - Excludes the fixed RBF prototypes.
+        - Accumulates curvature across chunks before averaging.
+    """
+
+    # Convert inputs to float64.
+    x = np.asarray(x, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 4 or x.shape[1:] != (1, 32, 32):
+        raise ValueError("x must have shape (n, 1, 32, 32).")
+
+    if not isinstance(chunk, (int, np.integer)) or chunk <= 0:
+        raise ValueError("chunk must be a positive integer.")
+
+    n = x.shape[0]
+
+    if n == 0:
+        raise ValueError("At least one input image is required.")
+
+    # Define all twelve trainable parameter keys.
+    trainable_keys = (
+        "C1_W", "C1_b",
+        "S2_c", "S2_b",
+        "C3_W", "C3_b",
+        "S4_c", "S4_b",
+        "C5_W", "C5_b",
+        "F6_W", "F6_b"
+    )
+
+    # Initialize accumulated curvature estimates.
+    h = {
+        key: np.zeros_like(params[key], dtype=np.float64)
+        for key in trainable_keys
+    }
+
+    # Process the dataset in chunks to reduce memory usage.
+    for start in range(0, n, chunk):
+
+        end = min(start + chunk, n)
+        x_batch = x[start:end]
+
+        # -----------------------------------------------------
+        # 1. Forward pass
+        # -----------------------------------------------------
+
+        _, cache = lenet5_forward(params, x_batch)
+
+        batch_size = x_batch.shape[0]
+
+        # -----------------------------------------------------
+        # 2. Initialize curvature at the F6 output states
+        # -----------------------------------------------------
+
+        # The second derivative of the squared Euclidean
+        # distance with respect to each F6 state is 2.
+        curv_h6 = np.full(
+            (batch_size, 84),
+            2.0,
+            dtype=np.float64
+        )
+
+        # -----------------------------------------------------
+        # 3. F6: Fully connected layer
+        # -----------------------------------------------------
+
+        curv_a6 = (
+            curv_h6 * squash_prime(cache["a6"]) ** 2
+        )
+
+        # Accumulate F6 weight curvature.
+        h["F6_W"] += (
+            cache["h5"] ** 2
+        ).T @ curv_a6
+
+        # Accumulate F6 bias curvature.
+        h["F6_b"] += np.sum(curv_a6, axis=0)
+
+        # Propagate curvature using squared F6 weights.
+        curv_h5 = curv_a6 @ (
+            params["F6_W"] ** 2
+        ).T
+
+        # -----------------------------------------------------
+        # 4. C5: Third convolution layer
+        # -----------------------------------------------------
+
+        curv_a5 = (
+            curv_h5 * squash_prime(cache["a5"]) ** 2
+        )
+
+        curv_a5 = curv_a5.reshape(
+            batch_size, 120, 1, 1
+        )
+
+        # Calculate the current chunk's C5 curvature.
+        curv_h4, dC5_W, dC5_b = conv_backward(
+            curv_a5,
+            cache["h4"] ** 2,
+            params["C5_W"] ** 2
+        )
+
+        # Accumulate instead of overwriting previous chunks.
+        h["C5_W"] += dC5_W
+        h["C5_b"] += dC5_b
+
+        # -----------------------------------------------------
+        # 5. S4: Second trainable subsampling layer
+        # -----------------------------------------------------
+
+        curv_a4 = (
+            curv_h4 * squash_prime(cache["a4"]) ** 2
+        )
+
+        # Calculate the current chunk's S4 curvature.
+        curv_h3, dS4_c, dS4_b = subsample_backward(
+            curv_a4,
+            cache["h3"] ** 2,
+            params["S4_c"] ** 2
+        )
+
+        # Accumulate coefficient and bias curvature.
+        h["S4_c"] += dS4_c
+        h["S4_b"] += dS4_b
+
+        # -----------------------------------------------------
+        # 6. C3: Second convolution layer
+        # -----------------------------------------------------
+
+        curv_a3 = (
+            curv_h3 * squash_prime(cache["a3"]) ** 2
+        )
+
+        # Apply the original C3 partial connection table.
+        curv_h2, dC3_W, dC3_b = conv_backward(
+            curv_a3,
+            cache["h2"] ** 2,
+            params["C3_W"] ** 2,
+            table=connection_table()
+        )
+
+        # Accumulate C3 curvature across all chunks.
+        h["C3_W"] += dC3_W
+        h["C3_b"] += dC3_b
+
+        # -----------------------------------------------------
+        # 7. S2: First trainable subsampling layer
+        # -----------------------------------------------------
+
+        curv_a2 = (
+            curv_h2 * squash_prime(cache["a2"]) ** 2
+        )
+
+        # Calculate the current chunk's S2 curvature.
+        curv_h1, dS2_c, dS2_b = subsample_backward(
+            curv_a2,
+            cache["h1"] ** 2,
+            params["S2_c"] ** 2
+        )
+
+        # Accumulate S2 coefficient and bias curvature.
+        h["S2_c"] += dS2_c
+        h["S2_b"] += dS2_b
+
+        # -----------------------------------------------------
+        # 8. C1: First convolution layer
+        # -----------------------------------------------------
+
+        curv_a1 = (
+            curv_h1 * squash_prime(cache["a1"]) ** 2
+        )
+
+        # Calculate the current chunk's C1 curvature.
+        _, dC1_W, dC1_b = conv_backward(
+            curv_a1,
+            x_batch ** 2,
+            params["C1_W"] ** 2
+        )
+
+        # Accumulate C1 curvature across all chunks.
+        h["C1_W"] += dC1_W
+        h["C1_b"] += dC1_b
+
+    # ---------------------------------------------------------
+    # 9. Average curvature over the entire dataset
+    # ---------------------------------------------------------
+
+    for key in trainable_keys:
+        h[key] /= n
+
+        # Ensure non-negative curvature estimates.
+        h[key] = np.maximum(h[key], 0.0)
+
+    return h
+
