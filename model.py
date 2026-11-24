@@ -212,3 +212,127 @@ def conv_forward(x, W, b, table=None):
 
     return output
 
+# Step 5 - conv_backward
+def conv_backward(dout, x, W, table=None):
+    """
+    Compute gradients of a valid, stride-1 convolution layer.
+
+    Parameters:
+        dout: Gradient of the loss with respect to the convolution
+              output, shape (n, c_out, H_out, W_out).
+        x: Original input feature maps, shape (n, c_in, H, W).
+        W: Convolution kernels, shape (c_out, c_in, k, k).
+        table: Optional Boolean connection table of shape
+               (c_in, c_out).
+
+    Returns:
+        dx: Gradient with respect to x, same shape as x.
+        dW: Gradient with respect to W, same shape as W.
+        db: Gradient with respect to biases, shape (c_out,).
+    """
+
+    # Convert inputs to NumPy arrays with consistent precision.
+    x = np.asarray(x, dtype=np.float64)
+    W = np.asarray(W, dtype=np.float64)
+    dout = np.asarray(dout, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 4:
+        raise ValueError("x must have shape (n, c_in, H, W).")
+
+    if W.ndim != 4:
+        raise ValueError("W must have shape (c_out, c_in, k, k).")
+
+    n, c_in, H, W_in = x.shape
+    c_out, w_c_in, k_h, k_w = W.shape
+
+    if w_c_in != c_in:
+        raise ValueError("Input channels must match kernel channels.")
+
+    if k_h != k_w:
+        raise ValueError("Convolution kernels must be square.")
+
+    if H < k_h or W_in < k_w:
+        raise ValueError("Kernel dimensions cannot exceed input dimensions.")
+
+    # Validate the optional connection table.
+    if table is not None:
+        table = np.asarray(table, dtype=bool)
+
+        if table.shape != (c_in, c_out):
+            raise ValueError("table must have shape (c_in, c_out).")
+
+        # Convert the connection table to kernel layout.
+        # np.where ensures disconnected kernels are completely ignored.
+        connection_mask = table.T[:, :, None, None]
+        W_effective = np.where(connection_mask, W, 0.0)
+    else:
+        connection_mask = None
+        W_effective = W
+
+    # Calculate the output spatial dimensions.
+    H_out = H - k_h + 1
+    W_out = W_in - k_w + 1
+
+    # Validate the upstream gradient dimensions.
+    expected_shape = (n, c_out, H_out, W_out)
+
+    if dout.shape != expected_shape:
+        raise ValueError(
+            f"dout must have shape {expected_shape}, got {dout.shape}."
+        )
+
+    # ---------------------------------------------------------
+    # 1. Gradient with respect to the input: dx
+    # ---------------------------------------------------------
+
+    # Initialize the input gradient.
+    dx = np.zeros_like(x)
+
+    # Each kernel position contributes to a corresponding region
+    # of the input gradient.
+    for u in range(k_h):
+        for v in range(k_w):
+
+            # Accumulate contributions from all output feature maps.
+            dx[:, :, u:u + H_out, v:v + W_out] += np.einsum(
+                'nohw,oi->nihw',
+                dout,
+                W_effective[:, :, u, v],
+                optimize=True
+            )
+
+    # ---------------------------------------------------------
+    # 2. Gradient with respect to the shared kernels: dW
+    # ---------------------------------------------------------
+
+    # Extract every sliding input window.
+    windows = np.lib.stride_tricks.sliding_window_view(
+        x,
+        window_shape=(k_h, k_w),
+        axis=(2, 3)
+    )
+
+    # Sum the gradient contributions over the batch and spatial
+    # positions because each kernel is shared across all positions.
+    dW = np.einsum(
+        'nohw,nihwuv->oiuv',
+        dout,
+        windows,
+        optimize=True
+    )
+
+    # Disconnected kernel pairs must have exactly zero gradients.
+    if connection_mask is not None:
+        dW = np.where(connection_mask, dW, 0.0)
+
+    # ---------------------------------------------------------
+    # 3. Gradient with respect to the output biases: db
+    # ---------------------------------------------------------
+
+    # Each output bias contributes to every spatial position
+    # and every image in the batch.
+    db = np.sum(dout, axis=(0, 2, 3))
+
+    return dx, dW, db
+

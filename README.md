@@ -14,6 +14,7 @@ python scaffold.py
 - [x] **2.** squash
 - [x] **3.** connection_table
 - [x] **4.** conv_forward
+- [x] **5.** conv_backward
 
 ---
 
