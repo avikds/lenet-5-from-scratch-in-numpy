@@ -659,3 +659,152 @@ def map_loss(y, labels, j):
 
     return E, dy
 
+# Step 9 - init_lenet5
+def init_lenet5(rng):
+    """
+    Initialize the parameters of the LeNet-5 architecture.
+
+    Parameters:
+        rng: NumPy random number generator.
+
+    Returns:
+        params: Dictionary containing 12 trainable arrays
+                and one fixed RBF prototype array.
+
+    Initialization:
+        Each trainable parameter is sampled uniformly from
+        [-2.4 / F, 2.4 / F], where F is its unit's fan-in.
+    """
+
+    params = {}
+
+    # ---------------------------------------------------------
+    # 1. C1: First convolution layer
+    # ---------------------------------------------------------
+    # Shape: (6, 1, 5, 5)
+    # Fan-in: 5 x 5 = 25
+
+    params["C1_W"] = (
+        rng.uniform(-1.0, 1.0, size=(6, 1, 5, 5))
+        * (2.4 / 25)
+    )
+
+    # One bias per C1 feature map.
+    params["C1_b"] = (
+        rng.uniform(-1.0, 1.0, size=(6,))
+        * (2.4 / 25)
+    )
+
+    # ---------------------------------------------------------
+    # 2. S2: First trainable subsampling layer
+    # ---------------------------------------------------------
+    # Shape: (6,)
+    # Fan-in: 2 x 2 = 4
+
+    params["S2_c"] = (
+        rng.uniform(-1.0, 1.0, size=(6,))
+        * (2.4 / 4)
+    )
+
+    params["S2_b"] = (
+        rng.uniform(-1.0, 1.0, size=(6,))
+        * (2.4 / 4)
+    )
+
+    # ---------------------------------------------------------
+    # 3. C3: Second convolution layer
+    # ---------------------------------------------------------
+    # Shape: (16, 6, 5, 5)
+    # Fan-in depends on the number of connected S2 maps.
+
+    T = connection_table()
+
+    # Calculate the number of incoming S2 maps for each C3 map.
+    # T has shape (6, 16), so summing over axis 0 gives (16,).
+    # Fan-in for each C3 map = 25 * number of connected maps.
+    F_c3 = 25 * np.sum(T, axis=0)
+
+    # Draw the complete C3 kernel array using one random call.
+    C3_W = rng.uniform(
+        -1.0,
+        1.0,
+        size=(16, 6, 5, 5)
+    )
+
+    # Apply the individual fan-in scaling to each C3 output map.
+    C3_W *= (2.4 / F_c3)[:, None, None, None]
+
+    # Set all kernels corresponding to disconnected S2-C3 pairs to zero.
+    # T.T has shape (16, 6), matching the first two kernel dimensions.
+    C3_W = np.where(
+        T.T[:, :, None, None],
+        C3_W,
+        0.0
+    )
+
+    params["C3_W"] = C3_W
+
+    # Initialize C3 biases using the fan-in of each output map.
+    params["C3_b"] = (
+        rng.uniform(-1.0, 1.0, size=(16,))
+        * (2.4 / F_c3)
+    )
+
+    # ---------------------------------------------------------
+    # 4. S4: Second trainable subsampling layer
+    # ---------------------------------------------------------
+    # Shape: (16,)
+    # Fan-in: 2 x 2 = 4
+
+    params["S4_c"] = (
+        rng.uniform(-1.0, 1.0, size=(16,))
+        * (2.4 / 4)
+    )
+
+    params["S4_b"] = (
+        rng.uniform(-1.0, 1.0, size=(16,))
+        * (2.4 / 4)
+    )
+
+    # ---------------------------------------------------------
+    # 5. C5: Third convolution layer
+    # ---------------------------------------------------------
+    # Shape: (120, 16, 5, 5)
+    # Fan-in: 16 x 5 x 5 = 400
+
+    params["C5_W"] = (
+        rng.uniform(-1.0, 1.0, size=(120, 16, 5, 5))
+        * (2.4 / 400)
+    )
+
+    params["C5_b"] = (
+        rng.uniform(-1.0, 1.0, size=(120,))
+        * (2.4 / 400)
+    )
+
+    # ---------------------------------------------------------
+    # 6. F6: Fully connected layer
+    # ---------------------------------------------------------
+    # Weight shape: (120, 84)
+    # Fan-in: 120
+
+    params["F6_W"] = (
+        rng.uniform(-1.0, 1.0, size=(120, 84))
+        * (2.4 / 120)
+    )
+
+    params["F6_b"] = (
+        rng.uniform(-1.0, 1.0, size=(84,))
+        * (2.4 / 120)
+    )
+
+    # ---------------------------------------------------------
+    # 7. RBF: Fixed output prototypes
+    # ---------------------------------------------------------
+    # Shape: (10, 84)
+    # These are fixed digit codes, not trainable parameters.
+
+    params["RBF"] = digit_codes()
+
+    return params
+

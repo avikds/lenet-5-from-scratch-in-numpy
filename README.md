@@ -18,6 +18,7 @@ python scaffold.py
 - [x] **6.** subsample_forward
 - [x] **7.** rbf_forward
 - [x] **8.** map_loss
+- [x] **9.** init_lenet5
 
 ---
 
