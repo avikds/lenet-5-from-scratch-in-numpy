@@ -1386,3 +1386,184 @@ def gn_diag(params, x, chunk=100):
 
     return h
 
+# Step 13 - train_sdlm
+def train_sdlm(
+    params,
+    x,
+    labels,
+    x_test,
+    labels_test,
+    etas,
+    rng,
+    mu=0.02,
+    j=10.0,
+    n_hess=500
+):
+    """
+    Train LeNet-5 using Stochastic Diagonal Levenberg-Marquardt.
+
+    Parameters:
+        params: Dictionary containing the initialized LeNet-5 parameters.
+        x: Scaled training images, shape (n, 1, 32, 32).
+        labels: Training labels, shape (n,).
+        x_test: Scaled test images, shape (n_test, 1, 32, 32).
+        labels_test: Test labels, shape (n_test,).
+        etas: Global learning rate for each training pass.
+        rng: NumPy random number generator.
+        mu: Levenberg-Marquardt damping parameter.
+        j: Positive constant used in the discriminative loss.
+        n_hess: Number of randomly selected images used for
+                Gauss-Newton curvature estimation.
+
+    Returns:
+        errors: List containing the test error after each pass.
+
+    Training procedure:
+        - Estimate Gauss-Newton curvature once per pass.
+        - Calculate an individual learning rate for each parameter.
+        - Shuffle the training images.
+        - Update parameters after every individual image.
+        - Keep the fixed RBF prototypes unchanged.
+    """
+
+    # Convert datasets and labels into NumPy arrays.
+    x = np.asarray(x, dtype=np.float64)
+    labels = np.asarray(labels)
+
+    x_test = np.asarray(x_test, dtype=np.float64)
+    labels_test = np.asarray(labels_test)
+
+    # ---------------------------------------------------------
+    # 1. Validate the training data
+    # ---------------------------------------------------------
+
+    if x.ndim != 4 or x.shape[1:] != (1, 32, 32):
+        raise ValueError("x must have shape (n, 1, 32, 32).")
+
+    if x_test.ndim != 4 or x_test.shape[1:] != (1, 32, 32):
+        raise ValueError("x_test must have shape (n_test, 1, 32, 32).")
+
+    if labels.shape != (len(x),):
+        raise ValueError("labels must have shape (n,).")
+
+    if labels_test.shape != (len(x_test),):
+        raise ValueError("labels_test must have shape (n_test,).")
+
+    if len(x) == 0 or len(x_test) == 0:
+        raise ValueError("Training and test datasets must not be empty.")
+
+    if not isinstance(n_hess, (int, np.integer)) or n_hess <= 0:
+        raise ValueError("n_hess must be a positive integer.")
+
+    if not np.isfinite(mu) or mu <= 0:
+        raise ValueError("mu must be a positive finite value.")
+
+    if not np.isfinite(j) or j <= 0:
+        raise ValueError("j must be a positive finite value.")
+
+    # Identify the twelve trainable parameter arrays.
+    # The RBF prototypes are fixed and must never be updated.
+    trainable_keys = [
+        key for key in params if key != "RBF"
+    ]
+
+    if len(trainable_keys) != 12:
+        raise ValueError("Expected exactly 12 trainable parameter arrays.")
+
+    # Store test errors after each training pass.
+    errors = []
+
+    # ---------------------------------------------------------
+    # 2. Training passes
+    # ---------------------------------------------------------
+
+    for eta in etas:
+
+        # -----------------------------------------------------
+        # Step 1: Estimate the Gauss-Newton curvature
+        # -----------------------------------------------------
+
+        # Randomly select up to n_hess training images.
+        pick = rng.permutation(len(x))[:n_hess]
+
+        # Estimate the average diagonal curvature for the
+        # current network parameters.
+        h = gn_diag(
+            params,
+            x[pick]
+        )
+
+        # -----------------------------------------------------
+        # Step 2: Calculate individual learning rates
+        # -----------------------------------------------------
+
+        # Each trainable parameter receives its own elementwise
+        # learning rate based on its Gauss-Newton curvature.
+        #
+        # These learning rates remain fixed throughout this pass.
+        rates = {
+            key: eta / (mu + h[key])
+            for key in trainable_keys
+        }
+
+        # -----------------------------------------------------
+        # Step 3: Randomly shuffle the training images
+        # -----------------------------------------------------
+
+        order = rng.permutation(len(x))
+
+        # -----------------------------------------------------
+        # Step 4: Online stochastic parameter updates
+        # -----------------------------------------------------
+
+        # Process exactly one training image at a time.
+        for i in order:
+
+            # Select the current training image.
+            xi = x[i:i + 1]
+            yi = labels[i:i + 1]
+
+            # Forward propagation through LeNet-5.
+            y_pred, cache = lenet5_forward(
+                params,
+                xi
+            )
+
+            # Calculate the paper's discriminative loss
+            # and its gradient with respect to the RBF penalties.
+            _, dy = map_loss(
+                y_pred,
+                yi,
+                j
+            )
+
+            # Backpropagate the loss through all seven layers.
+            grads = lenet5_backward(
+                params,
+                cache,
+                dy
+            )
+
+            # Update every trainable parameter immediately.
+            # The same learning rates are used throughout this pass.
+            for key in trainable_keys:
+
+                params[key] -= rates[key] * grads[key]
+
+        # -----------------------------------------------------
+        # Step 5: Evaluate the trained network
+        # -----------------------------------------------------
+
+        # Calculate test classification error after this pass.
+        test_error = error_rate(
+            params,
+            x_test,
+            labels_test
+        )
+
+        # Store the result as a Python float.
+        errors.append(float(test_error))
+
+    # Return test errors from all training passes.
+    return errors
+

@@ -22,6 +22,7 @@ python scaffold.py
 - [x] **10.** lenet5_forward
 - [x] **11.** lenet5_backward
 - [x] **12.** gn_diag
+- [x] **13.** train_sdlm
 
 ---
 
