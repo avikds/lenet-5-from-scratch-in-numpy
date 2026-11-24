@@ -11,6 +11,7 @@ python scaffold.py
 ## Steps
 
 - [x] **1.** scale_input
+- [x] **2.** squash
 
 ---
 

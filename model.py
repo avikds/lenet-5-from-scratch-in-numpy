@@ -46,3 +46,38 @@ def scale_input(images):
 
     return output
 
+# Step 2 - squash
+def squash(a):
+    """
+    LeNet-5 scaled hyperbolic tangent activation function.
+
+    f(a) = 1.7159 * tanh(2a / 3)
+
+    Supports scalar values and NumPy arrays of any shape.
+    """
+
+    # Convert input to float64 for consistent numerical precision.
+    a = np.asarray(a, dtype=np.float64)
+
+    # Apply the scaled hyperbolic tangent activation.
+    return 1.7159 * np.tanh((2.0 / 3.0) * a)
+
+
+def squash_prime(a):
+    """
+    Derivative of the LeNet-5 scaled hyperbolic tangent function.
+
+    f'(a) = 1.7159 * (2/3) * (1 - tanh(2a/3)^2)
+
+    Supports scalar values and NumPy arrays of any shape.
+    """
+
+    # Convert input to float64 for consistent numerical precision.
+    a = np.asarray(a, dtype=np.float64)
+
+    # Calculate tanh once and reuse it in the derivative.
+    t = np.tanh((2.0 / 3.0) * a)
+
+    # Apply the derivative using the chain rule.
+    return 1.7159 * (2.0 / 3.0) * (1.0 - t**2)
+
