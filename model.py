@@ -808,3 +808,211 @@ def init_lenet5(rng):
 
     return params
 
+# Step 10 - lenet5_forward
+def lenet5_forward(params, x):
+    """
+    Run the complete LeNet-5 forward pass.
+
+    Parameters:
+        params: Dictionary containing the initialized LeNet-5 parameters.
+        x: Input images of shape (n, 1, 32, 32).
+
+    Returns:
+        y: RBF output penalties, shape (n, 10).
+        cache: Dictionary containing the input and intermediate
+               activations required for backpropagation.
+    """
+
+    # Convert input to float64 for numerical consistency.
+    x = np.asarray(x, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 4 or x.shape[1:] != (1, 32, 32):
+        raise ValueError("x must have shape (n, 1, 32, 32).")
+
+    n = x.shape[0]
+
+    # ---------------------------------------------------------
+    # Layer 1: C1 - First convolution layer
+    # ---------------------------------------------------------
+    # Input:  (n, 1, 32, 32)
+    # Output: (n, 6, 28, 28)
+
+    a1 = conv_forward(
+        x,
+        params["C1_W"],
+        params["C1_b"]
+    )
+
+    h1 = squash(a1)
+
+    # ---------------------------------------------------------
+    # Layer 2: S2 - First trainable subsampling layer
+    # ---------------------------------------------------------
+    # Input:  (n, 6, 28, 28)
+    # Output: (n, 6, 14, 14)
+
+    a2 = subsample_forward(
+        h1,
+        params["S2_c"],
+        params["S2_b"]
+    )
+
+    h2 = squash(a2)
+
+    # ---------------------------------------------------------
+    # Layer 3: C3 - Second convolution layer
+    # ---------------------------------------------------------
+    # Uses the partial connectivity table between S2 and C3.
+    # Input:  (n, 6, 14, 14)
+    # Output: (n, 16, 10, 10)
+
+    a3 = conv_forward(
+        h2,
+        params["C3_W"],
+        params["C3_b"],
+        table=connection_table()
+    )
+
+    h3 = squash(a3)
+
+    # ---------------------------------------------------------
+    # Layer 4: S4 - Second trainable subsampling layer
+    # ---------------------------------------------------------
+    # Input:  (n, 16, 10, 10)
+    # Output: (n, 16, 5, 5)
+
+    a4 = subsample_forward(
+        h3,
+        params["S4_c"],
+        params["S4_b"]
+    )
+
+    h4 = squash(a4)
+
+    # ---------------------------------------------------------
+    # Layer 5: C5 - Third convolution layer
+    # ---------------------------------------------------------
+    # Input:  (n, 16, 5, 5)
+    # Output: (n, 120, 1, 1)
+    #
+    # Flatten the output into (n, 120) for the next layer.
+
+    a5 = conv_forward(
+        h4,
+        params["C5_W"],
+        params["C5_b"]
+    ).reshape(n, 120)
+
+    h5 = squash(a5)
+
+    # ---------------------------------------------------------
+    # Layer 6: F6 - Fully connected layer
+    # ---------------------------------------------------------
+    # Input:  (n, 120)
+    # Output: (n, 84)
+
+    a6 = h5 @ params["F6_W"] + params["F6_b"]
+
+    h6 = squash(a6)
+
+    # ---------------------------------------------------------
+    # Layer 7: RBF - Euclidean output layer
+    # ---------------------------------------------------------
+    # Input:  (n, 84)
+    # Output: (n, 10)
+    #
+    # The ten prototype vectors are fixed digit codes.
+
+    y = rbf_forward(
+        h6,
+        params["RBF"]
+    )
+
+    # ---------------------------------------------------------
+    # Store intermediate values for backpropagation.
+    # ---------------------------------------------------------
+
+    cache = {
+        "x": x,
+        "a1": a1,
+        "h1": h1,
+        "a2": a2,
+        "h2": h2,
+        "a3": a3,
+        "h3": h3,
+        "a4": a4,
+        "h4": h4,
+        "a5": a5,
+        "h5": h5,
+        "a6": a6,
+        "h6": h6
+    }
+
+    return y, cache
+
+
+def error_rate(params, x, labels, batch=200):
+    """
+    Calculate the classification error rate of LeNet-5.
+
+    Parameters:
+        params: Dictionary containing LeNet-5 parameters.
+        x: Input images of shape (n, 1, 32, 32).
+        labels: Correct digit labels of shape (n,).
+        batch: Maximum number of images processed at once.
+
+    Returns:
+        Error rate as a Python float.
+
+    Prediction:
+        The predicted digit is the class with the smallest
+        squared Euclidean RBF penalty.
+    """
+
+    # Convert inputs to NumPy arrays.
+    x = np.asarray(x)
+    labels = np.asarray(labels)
+
+    # Validate the batch size.
+    if not isinstance(batch, (int, np.integer)) or batch <= 0:
+        raise ValueError("batch must be a positive integer.")
+
+    # Validate image and label counts.
+    if x.ndim != 4:
+        raise ValueError("x must have shape (n, 1, 32, 32).")
+
+    if labels.ndim != 1 or len(labels) != len(x):
+        raise ValueError("labels must have shape (n,).")
+
+    n = len(x)
+
+    if n == 0:
+        raise ValueError("Input dataset must not be empty.")
+
+    # Count the number of incorrectly classified images.
+    incorrect = 0
+
+    # Process the dataset in batches to limit memory usage.
+    for start in range(0, n, batch):
+
+        # Determine the end of the current batch.
+        end = min(start + batch, n)
+
+        # Run the forward pass on the current batch.
+        y, _ = lenet5_forward(
+            params,
+            x[start:end]
+        )
+
+        # Select the digit corresponding to the smallest penalty.
+        predictions = np.argmin(y, axis=1)
+
+        # Compare predictions against the correct labels.
+        incorrect += int(
+            np.sum(predictions != labels[start:end])
+        )
+
+    # Return the fraction of incorrectly classified images.
+    return float(incorrect / n)
+

@@ -19,6 +19,7 @@ python scaffold.py
 - [x] **7.** rbf_forward
 - [x] **8.** map_loss
 - [x] **9.** init_lenet5
+- [x] **10.** lenet5_forward
 
 ---
 
