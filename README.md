@@ -15,6 +15,7 @@ python scaffold.py
 - [x] **3.** connection_table
 - [x] **4.** conv_forward
 - [x] **5.** conv_backward
+- [x] **6.** subsample_forward
 
 ---
 

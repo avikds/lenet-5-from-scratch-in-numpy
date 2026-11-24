@@ -336,3 +336,137 @@ def conv_backward(dout, x, W, table=None):
 
     return dx, dW, db
 
+# Step 6 - subsample_forward
+def subsample_forward(x, coef, bias):
+    """
+    Perform trainable 2 x 2 subsampling.
+
+    Parameters:
+        x: Input feature maps of shape (n, c, H, W).
+        coef: Trainable coefficient for each feature map, shape (c,).
+        bias: Trainable bias for each feature map, shape (c,).
+
+    Returns:
+        Output of shape (n, c, H/2, W/2).
+    """
+
+    # Convert inputs to float64 for numerical consistency.
+    x = np.asarray(x, dtype=np.float64)
+    coef = np.asarray(coef, dtype=np.float64)
+    bias = np.asarray(bias, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 4:
+        raise ValueError("x must have shape (n, c, H, W).")
+
+    n, c, H, W = x.shape
+
+    if H % 2 != 0 or W % 2 != 0:
+        raise ValueError("Input height and width must be even.")
+
+    if coef.shape != (c,):
+        raise ValueError("coef must have shape (c,).")
+
+    if bias.shape != (c,):
+        raise ValueError("bias must have shape (c,).")
+
+    # Divide each feature map into non-overlapping 2 x 2 blocks.
+    # Reshaped dimensions: (n, c, H/2, 2, W/2, 2).
+    blocks = x.reshape(n, c, H // 2, 2, W // 2, 2)
+
+    # Sum the four values in each 2 x 2 block.
+    block_sums = np.sum(blocks, axis=(3, 5))
+
+    # Apply the trainable coefficient and bias for each feature map.
+    output = (
+        coef[None, :, None, None] * block_sums
+        + bias[None, :, None, None]
+    )
+
+    return output
+
+
+def subsample_backward(dout, x, coef):
+    """
+    Compute gradients of the trainable subsampling layer.
+
+    Parameters:
+        dout: Gradient of the loss with respect to the output,
+              shape (n, c, H/2, W/2).
+        x: Original input feature maps, shape (n, c, H, W).
+        coef: Trainable coefficient for each feature map,
+              shape (c,).
+
+    Returns:
+        dx: Gradient with respect to x, same shape as x.
+        dcoef: Gradient with respect to coef, shape (c,).
+        dbias: Gradient with respect to bias, shape (c,).
+    """
+
+    # Convert inputs to float64.
+    dout = np.asarray(dout, dtype=np.float64)
+    x = np.asarray(x, dtype=np.float64)
+    coef = np.asarray(coef, dtype=np.float64)
+
+    # Validate input dimensions.
+    if x.ndim != 4:
+        raise ValueError("x must have shape (n, c, H, W).")
+
+    n, c, H, W = x.shape
+
+    if H % 2 != 0 or W % 2 != 0:
+        raise ValueError("Input height and width must be even.")
+
+    if coef.shape != (c,):
+        raise ValueError("coef must have shape (c,).")
+
+    expected_shape = (n, c, H // 2, W // 2)
+
+    if dout.shape != expected_shape:
+        raise ValueError(
+            f"dout must have shape {expected_shape}, got {dout.shape}."
+        )
+
+    # Divide the original input into the same 2 x 2 blocks
+    # used during the forward pass.
+    blocks = x.reshape(n, c, H // 2, 2, W // 2, 2)
+
+    # Sum each 2 x 2 block.
+    block_sums = np.sum(blocks, axis=(3, 5))
+
+    # ---------------------------------------------------------
+    # 1. Gradient with respect to the input: dx
+    # ---------------------------------------------------------
+
+    # Every pixel in a 2 x 2 block receives the same gradient,
+    # equal to dout multiplied by the feature map coefficient.
+    scaled_dout = dout * coef[None, :, None, None]
+
+    # Expand each gradient into its corresponding 2 x 2 block.
+    dx = np.broadcast_to(
+        scaled_dout.reshape(n, c, H // 2, 1, W // 2, 1),
+        (n, c, H // 2, 2, W // 2, 2)
+    ).reshape(n, c, H, W).copy()
+
+    # ---------------------------------------------------------
+    # 2. Gradient with respect to the coefficients: dcoef
+    # ---------------------------------------------------------
+
+    # Each coefficient is shared across all blocks and images.
+    # Therefore, accumulate its gradient over the batch and
+    # all spatial positions.
+    dcoef = np.sum(
+        dout * block_sums,
+        axis=(0, 2, 3)
+    )
+
+    # ---------------------------------------------------------
+    # 3. Gradient with respect to the biases: dbias
+    # ---------------------------------------------------------
+
+    # Each feature map has one shared bias.
+    # Accumulate gradients over the batch and spatial positions.
+    dbias = np.sum(dout, axis=(0, 2, 3))
+
+    return dx, dcoef, dbias
+
